@@ -30,6 +30,7 @@ fun shellSafe(value: String) = value.isNotBlank() && value.none { it == '\'' || 
 
 object LocalVm {
     const val ADMIN_USER = "admin"
+    const val ADMIN_PASSWORD_LENGTH = 24
     const val DIR = "$TERMUX_HOME/phoneport-vm"
     private const val DISK = "$DIR/disk.qcow2"
     private const val PARTIAL = "$DIR/disk.part"
@@ -75,6 +76,11 @@ object LocalVm {
               wget -q --show-progress -O '$PARTIAL' '${spec.imageUrl}'
               qemu-img resize '$PARTIAL' '${spec.diskGb}G'
               mv '$PARTIAL' '$DISK'
+            fi
+            if [ -f '$SEED' ]; then
+              echo '> seed already exists, keeping the admin password it holds'
+              echo '> provisioned'
+              exit 0
             fi
             echo '> writing cloud-init seed'
             cat > '$USER_DATA' <<'PHONEPORT_CLOUD_CONFIG'
@@ -139,4 +145,16 @@ object LocalVm {
 
     /** Everything the scripts have done, shell trace included. */
     fun log() = "tail -n 200 '$LOG' 2> /dev/null || echo '> nothing has run yet'"
+
+    /**
+     * Recovers the generated Portainer admin password from the cloud-init seed, which is the only
+     * copy left once provisioning deletes the plaintext cloud-config. Splitting the seed on single
+     * quotes isolates the password as its own field: nothing else in the cloud-config is a bare
+     * run of exactly [ADMIN_PASSWORD_LENGTH] alphanumerics.
+     *
+     * Deliberately skips [header]: tracing this to a log file would defeat the point of the seed
+     * being the only place the password lives.
+     */
+    fun adminPassword() = "mcopy -n -i '$SEED' ::user-data - 2> /dev/null " +
+        "| tr \"'\" '\\n' | grep -E '^[A-Za-z0-9]{$ADMIN_PASSWORD_LENGTH}\$' | head -n 1"
 }

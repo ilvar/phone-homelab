@@ -47,6 +47,7 @@ data class UiState(
     private var catalogJob: Job? = null
     private var filterJob: Job? = null
     private var credentialsDraft: MemoryCredentials? = null
+    private var pendingTermuxAction: (() -> Unit)? = null
     init {
         viewModelScope.launch {
             settingsStore.settings.collect { settings ->
@@ -166,14 +167,15 @@ data class UiState(
                 vmStage(VmStage.STOPPED, if (mutable.value.settings.vmProvisioned) "The VM is not running." else "No local VM has been created yet.")
         }
     }
-    private suspend fun termuxExec(label: String, script: String, timeoutMs: Long) {
+    /** [echo] is off for anything whose output is a secret; the caller gets it back instead. */
+    private suspend fun termuxExec(label: String, script: String, timeoutMs: Long, echo: Boolean = true): String {
         appendProgress("$ $label")
         val id = termux.run(script)
         val result = withTimeoutOrNull(timeoutMs) { TermuxResults.results.first { it.id == id } }
             ?: throw IllegalStateException("$label timed out after ${timeoutMs / 60_000} minutes. Termux may still be working; see ${LocalVm.LOG} in Termux.")
-        result.output.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
+        if (echo) result.output.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
         result.error.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
-        if (result.exitCode == 0) return
+        if (result.exitCode == 0) return result.output.trim()
         // Termux returns nothing more than the exit status, so point at the log that has the trace.
         val reason = if (result.exitCode == TermuxResultReceiver.EXIT_NO_RESULT)
             "$label produced no result from Termux" else "$label failed with exit code ${result.exitCode}"
@@ -181,15 +183,37 @@ data class UiState(
         throw IllegalStateException("$reason. Open \"Termux log\" for the trace.")
     }
     /** Every refusal has to reach the user: a button that quietly does nothing is the worst outcome. */
-    fun runVm() {
+    private fun withTermux(action: () -> Unit) {
         val blocker = termux.blocker()
         if (blocker != null) { vmStage(VmStage.TERMUX_UNAVAILABLE, blocker); mutable.update { it.copy(error = blocker) }; return }
-        if (!termux.permitted) { mutable.update { it.copy(vmPermissionRequest = it.vmPermissionRequest + 1) }; return }
-        startVm()
+        if (!termux.permitted) {
+            pendingTermuxAction = action
+            mutable.update { it.copy(vmPermissionRequest = it.vmPermissionRequest + 1) }
+            return
+        }
+        action()
     }
+    fun runVm() = withTermux(::startVm)
+    fun recoverAdminPassword() = withTermux(::recoverPassword)
     fun vmPermissionResult(granted: Boolean) {
-        if (granted) startVm()
-        else mutable.update { it.copy(error = "PhonePort cannot start the VM without Termux's RUN_COMMAND permission. Grant it in Android settings, or allow it the next time PhonePort asks.") }
+        val action = pendingTermuxAction
+        pendingTermuxAction = null
+        if (granted) action?.invoke()
+        else mutable.update { it.copy(error = "PhonePort cannot drive the VM without Termux's RUN_COMMAND permission. Grant it in Android settings, or allow it the next time PhonePort asks.") }
+    }
+    /**
+     * Reads the admin account back out of the cloud-init seed. Needed whenever the app's storage and
+     * the VM disagree - a reinstall or cleared data loses the password while the guest keeps using it.
+     */
+    private fun recoverPassword() {
+        runOperation("Recover admin password") {
+            val password = termuxExec("read seed", LocalVm.adminPassword(), 60_000L, echo = false)
+            require(password.isNotBlank()) { "No admin password found in ${LocalVm.DIR}/seed.img. The VM may not be provisioned yet." }
+            secrets.replace(MemoryCredentials(username = LocalVm.ADMIN_USER, password = password))
+            settingsStore.save(mutable.value.settings.copy(vmProvisioned = true))
+            mutable.update { it.copy(savedUsername = LocalVm.ADMIN_USER, savedPassword = password) }
+            appendProgress("Recovered the Portainer admin account. Connect below is filled in with it.")
+        }
     }
     private fun startVm() {
         val spec = mutable.value.settings.vm

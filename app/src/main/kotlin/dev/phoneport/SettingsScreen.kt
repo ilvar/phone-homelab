@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
     stopVm: () -> Unit,
     vmConsole: () -> Unit,
     vmLog: () -> Unit,
+    recoverAdminPassword: () -> Unit,
 ) {
     var url by rememberSaveable(state.settings.baseUrl) { mutableStateOf(state.settings.baseUrl) }
     var trust by rememberSaveable(state.settings.trustSelfSigned) { mutableStateOf(state.settings.trustSelfSigned) }
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.dp
                 if (running) OutlinedButton(stopVm, enabled = !state.busy) { Text("Stop the VM") }
                 if (state.settings.vmProvisioned) TextButton(vmConsole, enabled = !state.busy) { Text("Guest console") }
                 TextButton(vmLog, enabled = !state.busy) { Text("Termux log") }
+                TextButton(recoverAdminPassword, enabled = !state.busy) { Text("Recover password") }
             }
             Text("Termux must allow external apps: set allow-external-apps=true in ~/.termux/termux.properties, then restart Termux.", style = MaterialTheme.typography.bodySmall)
         }

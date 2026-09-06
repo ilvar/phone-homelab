@@ -45,6 +45,23 @@ class LocalVmTest {
         scripts.forEach { assertFalse(it, it.contains('$')) }
     }
 
+    @Test fun `the admin password is recoverable from the seed and never logged`() {
+        val script = LocalVm.adminPassword()
+        assertTrue(script.contains("mcopy -n -i '${LocalVm.DIR}/seed.img' ::user-data -"))
+        assertTrue(script.contains("[A-Za-z0-9]{${LocalVm.ADMIN_PASSWORD_LENGTH}}"))
+        // Recovery must not tee into the shared log, which is readable long after the fact.
+        assertFalse(script.contains(LocalVm.LOG))
+        assertFalse(script.contains("set -x"))
+    }
+
+    @Test fun `provisioning keeps an existing seed so a rerun cannot orphan the guest password`() {
+        val script = LocalVm.provision(VmSpec(), password)
+        val guard = script.indexOf("if [ -f '${LocalVm.DIR}/seed.img' ]; then")
+        assertTrue(guard > 0)
+        assertTrue(guard < script.indexOf("mkfs.vfat"))
+        assertTrue(script.contains("keeping the admin password it holds"))
+    }
+
     @Test fun `weak or injectable admin passwords are rejected`() {
         assertThrows(IllegalArgumentException::class.java) { LocalVm.provision(VmSpec(), "short") }
         assertThrows(IllegalArgumentException::class.java) { LocalVm.provision(VmSpec(), "'; rm -rf / #padding") }
