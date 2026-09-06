@@ -34,8 +34,12 @@ interface Credentials {
 object Network {
     fun publicClient() = OkHttpClient.Builder().connectTimeout(60, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+    /** Deploying an app pulls an image and starts a container; on an emulated guest that is slow. */
+    val SPIN_UP_TIMEOUT_MINUTES = 10L
     fun portainer(base: HttpUrl, trustSelfSigned: Boolean, credentials: Credentials): OkHttpClient {
         val builder = publicClient().newBuilder().retryOnConnectionFailure(false)
+            .readTimeout(SPIN_UP_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .writeTimeout(SPIN_UP_TIMEOUT_MINUTES, TimeUnit.MINUTES)
         if (trustSelfSigned) {
             val trust = object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit

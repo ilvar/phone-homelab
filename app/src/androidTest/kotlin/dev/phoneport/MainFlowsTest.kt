@@ -39,6 +39,17 @@ class MainFlowsTest {
         compose.onNodeWithText("Connect").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf<Any>("admin", "generatedPassword12", false), seen) }
     }
+    @Test fun theStoredPasswordCanBeRevealedAndCopied() {
+        val secret = "generatedPassword12"
+        compose.setContent { MaterialTheme {
+            SettingsScreen(UiState(savedUsername = "admin", savedPassword = secret),
+                { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, {}, {}, {}, {}, {})
+        } }
+        compose.onNodeWithText("Copy password").assertIsEnabled()
+        compose.onNodeWithText("Show").performScrollTo().performClick()
+        compose.onNodeWithText("Hide").assertIsDisplayed()
+        compose.onNodeWithText(secret).assertIsDisplayed()
+    }
     @Test fun runPortainerAlwaysReachesTheModelSoRefusalsCanBeReported() {
         var started = false
         val state = UiState(vm = VmStage.STOPPED, vmMessage = "No local VM has been created yet.")

@@ -27,6 +27,14 @@ class ApiTest {
         assertEquals("/api/endpoints", request.path); assertEquals("key", request.getHeader("X-API-Key"))
         assertNull(request.getHeader("Authorization"))
     }
+    @Test fun portainerCallsAllowTenMinutesForASlowGuest() {
+        val client = Network.portainer(server.url("/"), false, credentials)
+        assertEquals(10 * 60_000, client.readTimeoutMillis)
+        assertEquals(10 * 60_000, client.writeTimeoutMillis)
+        // Connecting is still expected to be prompt; only the work behind it is slow.
+        assertEquals(60_000, client.connectTimeoutMillis)
+        assertEquals(60_000, Network.publicClient().readTimeoutMillis)
+    }
     @Test fun createsTheLocalEnvironmentAsMultipartForm() {
         server.enqueue(MockResponse().setBody("""{"Id":1,"Name":"local","Type":1}"""))
         val part = { value: String -> value.toRequestBody("text/plain".toMediaType()) }

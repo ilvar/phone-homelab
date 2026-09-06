@@ -1,5 +1,10 @@
 package dev.phoneport
 
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
+import android.os.PersistableBundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -9,7 +14,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable fun SettingsScreen(
@@ -34,6 +41,9 @@ import androidx.compose.ui.unit.dp
     var username by remember(state.savedUsername) { mutableStateOf(state.savedUsername) }
     var password by remember(state.savedPassword) { mutableStateOf(state.savedPassword) }
     var sourceName by rememberSaveable { mutableStateOf("") }; var sourceUrl by rememberSaveable { mutableStateOf("") }
+    // The VM's generated password is unguessable and unmemorable, so it has to be readable somewhere.
+    var reveal by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vmPermissionResult)
     // The model decides when a prompt is worth showing; the counter re-arms it for a later retry.
     LaunchedEffect(state.vmPermissionRequest) { if (state.vmPermissionRequest > 0) askPermission.launch(Termux.PERMISSION) }
@@ -74,7 +84,11 @@ import androidx.compose.ui.unit.dp
         if (apiMode) OutlinedTextField(key, { key = it }, label = { Text("API key") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
         else {
             OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(password, { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(password, { password = it }, label = { Text("Password") },
+                visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = { TextButton({ reveal = !reveal }) { Text(if (reveal) "Hide" else "Show") } },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            TextButton({ copyPassword(context, password) }, enabled = password.isNotBlank()) { Text("Copy password") }
             Text("Your credentials are encrypted on this device so the app can sign in again when the session expires. A local VM's Portainer admin account is filled in for you.", style = MaterialTheme.typography.bodySmall)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -104,4 +118,12 @@ import androidx.compose.ui.unit.dp
         Text("Logos and stackfiles are restricted to your catalog hosts. SVG logos fall back to a placeholder.", style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(24.dp))
     }
+}
+
+/** Flagged sensitive so Android 13+ keeps the value out of the clipboard preview toast. */
+private fun copyPassword(context: Context, password: String) {
+    val clip = ClipData.newPlainText("Portainer password", password).apply {
+        description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+    }
+    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
 }

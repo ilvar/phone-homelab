@@ -101,7 +101,7 @@ TLS verification is enabled by default. The network factory accepts an explicit 
 
 The URL validator permits HTTP only for localhost, IPv4 loopback, RFC1918 IPv4 addresses, and IPv6 loopback. Android network-security XML cannot express CIDR ranges, so the Android layer uses a matching application-level restriction; see [Android's network security configuration documentation](https://developer.android.com/privacy-and-security/security-config).
 
-Connection, read, and write timeouts are 60 seconds. API mutation requests are not automatically retried after transport failures. JWT authentication retries once on 401 after renewal. Docker pull stream errors and Portainer's `message` field are preserved verbatim.
+Connection timeout is 60 seconds. Portainer read and write timeouts are 10 minutes, because pulling an image and starting a container on an emulated guest is slow; catalog and registry requests keep the 60-second timeout. API mutation requests are not automatically retried after transport failures. JWT authentication retries once on 401 after renewal. Docker pull stream errors and Portainer's `message` field are preserved verbatim.
 
 ## Storage and network behavior
 
