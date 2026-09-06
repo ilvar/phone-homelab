@@ -7,8 +7,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.phoneport.core.*
 import org.junit.Assert.*
-import android.content.pm.PackageManager
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,34 +19,40 @@ class MainFlowsTest {
         compose.setContent { MaterialTheme {
             SettingsScreen(UiState(), { url, trust, key, _, _, apiMode ->
                 assertEquals("http://127.0.0.1:9000", url); assertFalse(trust); assertEquals("test-key", key); assertTrue(apiMode); connected = true
-            }, {}, { _, _ -> }, {}, {}, {}, {})
+            }, {}, { _, _ -> }, {}, {}, {}, {}, {})
         } }
         compose.onNodeWithText("Connect").assertIsNotEnabled()
         compose.onAllNodesWithText("API key").filter(hasSetTextAction()).onFirst().performTextInput("test-key")
         compose.onNodeWithText("Connect").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(connected) }
     }
-    @Test fun runPortainerStartsTheLocalVmWhenPermissionIsAlreadyGranted() {
+    @Test fun runPortainerAlwaysReachesTheModelSoRefusalsCanBeReported() {
         var started = false
         val state = UiState(vm = VmStage.STOPPED, vmMessage = "No local VM has been created yet.")
         compose.setContent { MaterialTheme {
-            SettingsScreen(state, { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, { started = true }, {}, {})
+            SettingsScreen(state, { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, { started = true }, {}, {}, {})
         } }
         compose.onNodeWithText("No local VM has been created yet.").assertIsDisplayed()
         compose.onNodeWithText("Create and start the VM").performScrollTo().performClick()
-        // Without the Termux permission the click only opens the system prompt, so the callback stays untouched.
-        compose.runOnIdle { assertEquals(hasTermuxPermission(), started) }
+        compose.runOnIdle { assertTrue(started) }
+    }
+    @Test fun unusableTermuxExplainsItselfAndOffersNoStartButton() {
+        val message = "This Termux build has no RUN_COMMAND service, so PhonePort cannot start a VM through it."
+        compose.setContent { MaterialTheme {
+            SettingsScreen(UiState(vm = VmStage.TERMUX_UNAVAILABLE, vmMessage = message),
+                { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, {}, {}, {})
+        } }
+        compose.onNodeWithText(message).assertIsDisplayed()
+        compose.onAllNodesWithText("Create and start the VM").assertCountEquals(0)
     }
     @Test fun runPortainerIsDisabledWhileTheVmIsAlreadyUp() {
         compose.setContent { MaterialTheme {
             SettingsScreen(UiState(vm = VmStage.RUNNING, vmMessage = "Portainer is answering on http://127.0.0.1:9000"),
-                { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, {}, {})
+                { _, _, _, _, _, _ -> }, {}, { _, _ -> }, {}, {}, {}, {}, {})
         } }
         compose.onNodeWithText("Portainer is running").performScrollTo().assertIsNotEnabled()
         compose.onNodeWithText("Stop the VM").assertIsDisplayed()
     }
-    private fun hasTermuxPermission() = InstrumentationRegistry.getInstrumentation().targetContext
-        .checkSelfPermission(Termux.PERMISSION) == PackageManager.PERMISSION_GRANTED
     @Test fun installedTilesOfferActionsAndAddApp() {
         var added = false; var action = ""
         val app = InstalledApp("c1", "My Nginx", "nginx:latest", "running", "Up 2 hours")

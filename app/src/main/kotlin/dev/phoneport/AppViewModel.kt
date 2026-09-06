@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 enum class Screen { SETTINGS, HOME, CATALOG, DETAIL }
-enum class VmStage { UNKNOWN, TERMUX_MISSING, PROVISIONING, STARTING, WAITING, RUNNING, STOPPED, FAILED }
+enum class VmStage { UNKNOWN, TERMUX_UNAVAILABLE, PROVISIONING, STARTING, WAITING, RUNNING, STOPPED, FAILED }
 data class UiState(
     val ready: Boolean = false, val settings: Settings = Settings(), val screen: Screen = Screen.SETTINGS,
     val endpoints: List<Endpoint> = emptyList(), val connectedDraft: Settings? = null,
@@ -27,7 +27,7 @@ data class UiState(
     val loadingCatalog: Boolean = false, val busy: Boolean = false, val error: String? = null,
     val catalogWarnings: List<String> = emptyList(), val progressTitle: String? = null,
     val progress: String = "", val operationDone: Boolean = false,
-    val vm: VmStage = VmStage.UNKNOWN, val vmMessage: String = "",
+    val vm: VmStage = VmStage.UNKNOWN, val vmMessage: String = "", val vmPermissionRequest: Int = 0,
 )
 @HiltViewModel class AppViewModel @Inject constructor(
     private val settingsStore: SettingsStore, private val secrets: SecretStore,
@@ -144,10 +144,12 @@ data class UiState(
     /** Cheap, silent check on startup: probing loopback never wakes Termux or prompts the user. */
     fun refreshVm() {
         viewModelScope.launch {
-            if (!termux.installed) { vmStage(VmStage.TERMUX_MISSING, "Termux is not installed on this phone."); return@launch }
             val spec = mutable.value.settings.vm
-            if (portainerReachable(spec)) vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}")
-            else if (mutable.value.vm in listOf(VmStage.UNKNOWN, VmStage.RUNNING, VmStage.TERMUX_MISSING))
+            // A reachable Portainer wins even when Termux cannot be driven: it may be running already.
+            if (portainerReachable(spec)) { vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}"); return@launch }
+            val blocker = termux.blocker()
+            if (blocker != null) { vmStage(VmStage.TERMUX_UNAVAILABLE, blocker); return@launch }
+            if (mutable.value.vm in listOf(VmStage.UNKNOWN, VmStage.RUNNING, VmStage.TERMUX_UNAVAILABLE))
                 vmStage(VmStage.STOPPED, if (mutable.value.settings.vmProvisioned) "The VM is not running." else "No local VM has been created yet.")
         }
     }
@@ -160,7 +162,18 @@ data class UiState(
         result.error.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
         if (result.exitCode != 0) throw IllegalStateException("$label failed with exit code ${result.exitCode}")
     }
+    /** Every refusal has to reach the user: a button that quietly does nothing is the worst outcome. */
     fun runVm() {
+        val blocker = termux.blocker()
+        if (blocker != null) { vmStage(VmStage.TERMUX_UNAVAILABLE, blocker); mutable.update { it.copy(error = blocker) }; return }
+        if (!termux.permitted) { mutable.update { it.copy(vmPermissionRequest = it.vmPermissionRequest + 1) }; return }
+        startVm()
+    }
+    fun vmPermissionResult(granted: Boolean) {
+        if (granted) startVm()
+        else mutable.update { it.copy(error = "PhonePort cannot start the VM without Termux's RUN_COMMAND permission. Grant it in Android settings, or allow it the next time PhonePort asks.") }
+    }
+    private fun startVm() {
         val spec = mutable.value.settings.vm
         runOperation("Run Portainer") { op ->
             spec.validate()

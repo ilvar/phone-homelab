@@ -66,12 +66,25 @@ class TermuxResultReceiver : BroadcastReceiver() {
     private val ids = AtomicInteger(1)
     val installed: Boolean
         get() = runCatching { context.packageManager.getPackageInfo(Termux.PACKAGE, 0) }.isSuccess
+    /**
+     * The Google Play build of Termux ships without RunCommandService and without declaring
+     * RUN_COMMAND, so the permission can never be granted there: requesting an undefined permission
+     * is denied immediately and without a prompt. Detect that before asking for anything.
+     */
+    val pluginAvailable: Boolean
+        get() = context.packageManager.resolveService(Intent(Termux.ACTION).setClassName(Termux.PACKAGE, Termux.SERVICE), 0) != null
     val permitted: Boolean
         get() = context.checkSelfPermission(Termux.PERMISSION) == PackageManager.PERMISSION_GRANTED
+    /** Null when Termux can host the VM, otherwise an explanation the user can act on. */
+    fun blocker(): String? = when {
+        !installed -> "Termux is not installed. Install Termux from F-Droid, open it once, then try again."
+        !pluginAvailable -> "This Termux build has no RUN_COMMAND service, so PhonePort cannot start a VM through it. The Google Play build of Termux omits it; install the F-Droid or GitHub build instead."
+        else -> null
+    }
 
     /** Hands [script] to Termux and returns the id its result broadcast will carry. */
     fun run(script: String): Int {
-        check(installed) { "Termux is not installed. Install Termux from F-Droid or GitHub, then try again." }
+        blocker()?.let { throw IllegalStateException(it) }
         check(permitted) { "PhonePort needs the Termux RUN_COMMAND permission." }
         val id = ids.getAndIncrement()
         val callback = Intent(context, TermuxResultReceiver::class.java).putExtra(TermuxResults.EXTRA_ID, id)

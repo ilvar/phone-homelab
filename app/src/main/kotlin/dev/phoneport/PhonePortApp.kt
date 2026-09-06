@@ -52,7 +52,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
             }
             if (!state.ready) CircularProgressIndicator(Modifier.padding(24.dp))
             else when (state.screen) {
-                Screen.SETTINGS -> SettingsScreen(state, model::connect, model::chooseEndpoint, model::addSource, model::removeSource, model::runVm, model::stopVm, model::vmConsole)
+                Screen.SETTINGS -> SettingsScreen(state, model::connect, model::chooseEndpoint, model::addSource, model::removeSource, model::runVm, model::vmPermissionResult, model::stopVm, model::vmConsole)
                 Screen.HOME -> HomeScreen(state, { model.navigate(Screen.CATALOG) }, model::refreshInstalled, model::action, model::logs) { port ->
                     runCatching {
                         val base = state.settings.baseUrl.toHttpUrl()

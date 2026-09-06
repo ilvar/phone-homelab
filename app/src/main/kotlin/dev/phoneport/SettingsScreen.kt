@@ -1,6 +1,5 @@
 package dev.phoneport
 
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -10,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -21,6 +19,7 @@ import androidx.compose.ui.unit.dp
     addSource: (String, String) -> Unit,
     removeSource: (dev.phoneport.core.CatalogSource) -> Unit,
     runVm: () -> Unit,
+    vmPermissionResult: (Boolean) -> Unit,
     stopVm: () -> Unit,
     vmConsole: () -> Unit,
 ) {
@@ -30,25 +29,21 @@ import androidx.compose.ui.unit.dp
     // Credentials intentionally do not use saved instance state.
     var key by remember { mutableStateOf("") }; var username by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
     var sourceName by rememberSaveable { mutableStateOf("") }; var sourceUrl by rememberSaveable { mutableStateOf("") }
-    val context = LocalContext.current
-    var permitted by remember { mutableStateOf(context.checkSelfPermission(Termux.PERMISSION) == PackageManager.PERMISSION_GRANTED) }
-    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        permitted = granted
-        if (granted) runVm()
-    }
+    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vmPermissionResult)
+    // The model decides when a prompt is worth showing; the counter re-arms it for a later retry.
+    LaunchedEffect(state.vmPermissionRequest) { if (state.vmPermissionRequest > 0) askPermission.launch(Termux.PERMISSION) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Run Portainer", style = MaterialTheme.typography.headlineSmall)
         val running = state.vm == VmStage.RUNNING
         Text(state.vmMessage.ifBlank { "Checking for a local Portainer…" },
             color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        if (state.vm == VmStage.TERMUX_MISSING)
-            Text("PhonePort runs Portainer in a QEMU virtual machine hosted by Termux. Install Termux from F-Droid, open it once, then return here.", style = MaterialTheme.typography.bodySmall)
+        if (state.vm == VmStage.TERMUX_UNAVAILABLE)
+            Text("PhonePort runs Portainer in a QEMU virtual machine hosted by Termux.", style = MaterialTheme.typography.bodySmall)
         else {
             if (!state.settings.vmProvisioned) Text(
                 "The first run installs QEMU in Termux, downloads a Debian cloud image and boots it to install Docker and Portainer. It needs a few GB of storage and, because this phone has no KVM, a lot of patience.",
                 style = MaterialTheme.typography.bodySmall)
-            Button({ if (permitted) runVm() else askPermission.launch(Termux.PERMISSION) },
-                enabled = !state.busy && !running, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+            Button(runVm, enabled = !state.busy && !running, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
                 Text(when {
                     running -> "Portainer is running"
                     !state.settings.vmProvisioned -> "Create and start the VM"
