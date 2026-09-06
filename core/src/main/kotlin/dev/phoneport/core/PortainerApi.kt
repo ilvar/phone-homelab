@@ -8,6 +8,8 @@ import retrofit2.http.*
 interface PortainerApi {
     @POST("api/auth") fun auth(@Body body: RequestBody): Call<ResponseBody>
     @GET("api/endpoints") fun endpoints(): Call<ResponseBody>
+    // Portainer parses environment creation as multipart because the remote forms carry TLS files.
+    @Multipart @POST("api/endpoints") fun createEndpoint(@Part("Name") name: RequestBody, @Part("EndpointCreationType") type: RequestBody): Call<ResponseBody>
     @POST("api/endpoints/{id}/docker/containers/create") fun createContainer(@Path("id") endpoint: Int, @Query("name") name: String, @Body body: RequestBody): Call<ResponseBody>
     @POST("api/endpoints/{id}/docker/containers/{cid}/{action}") fun containerAction(@Path("id") endpoint: Int, @Path("cid") container: String, @Path("action") action: String): Call<ResponseBody>
     @DELETE("api/endpoints/{id}/docker/containers/{cid}") fun removeContainer(@Path("id") endpoint: Int, @Path("cid") container: String): Call<ResponseBody>

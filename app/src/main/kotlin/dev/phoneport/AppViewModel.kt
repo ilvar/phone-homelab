@@ -106,12 +106,21 @@ data class UiState(
         val credentials = if (apiKeyMode) MemoryCredentials(apiKey = key.trim()) else MemoryCredentials(username = username, password = password)
         runOperation { op ->
             require(if (apiKeyMode) credentials.apiKey.isNotBlank() else credentials.username.isNotBlank() && credentials.password.isNotBlank()) { "Enter your authentication credentials" }
-            val endpoints = backend.connect(draft, credentials, op)
-            require(endpoints.isNotEmpty()) { "No Docker environments are available to this account" }
+            val endpoints = backend.connect(draft, credentials, op).ifEmpty { adoptLocalEnvironment(draft, credentials, op) }
+            require(endpoints.isNotEmpty()) { "No Docker environments are available to this account. Add an environment in Portainer, then connect again." }
             credentialsDraft = credentials
             mutable.update { it.copy(endpoints = endpoints, connectedDraft = draft) }
             if (endpoints.size == 1) saveEndpoint(endpoints.single())
         }
+    }
+    /**
+     * Only ever creates an environment on the Portainer PhonePort runs itself. Doing this to someone
+     * else's Portainer would be a mutation they never asked for.
+     */
+    private fun adoptLocalEnvironment(settings: Settings, credentials: Credentials, op: Operation): List<Endpoint> {
+        if (settings.baseUrl.trimEnd('/') != settings.vm.baseUrl) return emptyList()
+        appendProgress("Portainer has no environment yet; creating the local Docker environment.")
+        return backend.createLocalEndpoint(settings, credentials, op)
     }
     fun chooseEndpoint(endpoint: Endpoint) {
         runOperation { saveEndpoint(endpoint) }
@@ -250,8 +259,8 @@ data class UiState(
             vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}")
             appendProgress("Portainer is up. Signing in as ${LocalVm.ADMIN_USER}.")
             val credentials = MemoryCredentials(username = LocalVm.ADMIN_USER, password = secrets.password)
-            val endpoints = backend.connect(settings, credentials, op)
-            require(endpoints.isNotEmpty()) { "The local Portainer has no Docker environment yet" }
+            val endpoints = backend.connect(settings, credentials, op).ifEmpty { adoptLocalEnvironment(settings, credentials, op) }
+            require(endpoints.isNotEmpty()) { "The local Portainer created no Docker environment" }
             credentialsDraft = credentials
             mutable.update { it.copy(endpoints = endpoints, connectedDraft = settings) }
             if (endpoints.size == 1) saveEndpoint(endpoints.single())

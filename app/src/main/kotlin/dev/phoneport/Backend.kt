@@ -6,6 +6,8 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Retrofit
 import java.io.Closeable
 import java.io.IOException
@@ -53,12 +55,24 @@ class Operation : Closeable {
             val token = op.json(api.auth(jsonBody(buildJsonObject { put("username", credentials.username); put("password", credentials.password) }))).jsonObject.string("jwt")
             require(token.isNotBlank()) { "Portainer returned no JWT" }; credentials.jwt = token
         }
-        return op.json(api.endpoints()).array().mapNotNull {
-            val item = it as? JsonObject ?: return@mapNotNull null
-            // Endpoint type 1/2/4/5 can expose Docker; Kubernetes environments are not deploy targets.
-            if (item.int("Type") !in setOf(1, 2, 4, 5)) return@mapNotNull null
-            Endpoint(item.int("Id"), item.string("Name"))
-        }
+        return endpoints(api, op)
+    }
+    private fun endpoints(api: PortainerApi, op: Operation) = op.json(api.endpoints()).array().mapNotNull {
+        val item = it as? JsonObject ?: return@mapNotNull null
+        // Endpoint type 1/2/4/5 can expose Docker; Kubernetes environments are not deploy targets.
+        if (item.int("Type") !in setOf(1, 2, 4, 5)) return@mapNotNull null
+        Endpoint(item.int("Id"), item.string("Name"))
+    }
+    /**
+     * Portainer only creates its `local` environment through the setup wizard, so a Portainer that
+     * PhonePort started itself has none and the API returns an empty list. Creation type 1 binds the
+     * Docker socket the container already mounts.
+     */
+    fun createLocalEndpoint(settings: Settings, credentials: Credentials, op: Operation): List<Endpoint> {
+        val api = api(settings, credentials)
+        fun part(value: String) = value.toRequestBody("text/plain".toMediaType())
+        op.json(api.createEndpoint(part("local"), part("1")))
+        return endpoints(api, op)
     }
     fun installed(settings: Settings, credentials: Credentials, op: Operation): List<InstalledApp> {
         val api = api(settings, credentials)

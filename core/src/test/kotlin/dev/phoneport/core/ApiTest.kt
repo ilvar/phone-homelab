@@ -1,5 +1,7 @@
 package dev.phoneport.core
 
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.mockwebserver.*
 import org.junit.*
 import org.junit.Assert.*
@@ -24,6 +26,19 @@ class ApiTest {
         val request = server.takeRequest()
         assertEquals("/api/endpoints", request.path); assertEquals("key", request.getHeader("X-API-Key"))
         assertNull(request.getHeader("Authorization"))
+    }
+    @Test fun createsTheLocalEnvironmentAsMultipartForm() {
+        server.enqueue(MockResponse().setBody("""{"Id":1,"Name":"local","Type":1}"""))
+        val part = { value: String -> value.toRequestBody("text/plain".toMediaType()) }
+        api().createEndpoint(part("local"), part("1")).execute().requireBody().close()
+        val request = server.takeRequest()
+        assertEquals("/api/endpoints", request.path)
+        assertTrue(request.getHeader("Content-Type").orEmpty().startsWith("multipart/form-data"))
+        val body = request.body.readUtf8()
+        // Portainer reads these as form values; creation type 1 is the local Docker socket.
+        assertTrue(body, body.contains("""name="Name""""))
+        assertTrue(body, body.contains("local"))
+        assertTrue(body, body.contains("""name="EndpointCreationType""""))
     }
     @Test fun refreshesJwtExactlyOnceAndStoresIt() {
         credentials.apiKey = ""; credentials.jwt = "old"; credentials.username = "admin"; credentials.password = "secret"
