@@ -40,6 +40,23 @@ object LocalVm {
     private const val CONSOLE = "$DIR/console.log"
     private const val FIRMWARE = "$TERMUX_PREFIX/share/qemu/edk2-aarch64-code.fd"
     private const val PACKAGES = "qemu-system-aarch64-headless qemu-utils wget dosfstools mtools"
+    const val LOG = "$DIR/phoneport.log"
+
+    /**
+     * Termux can only hand back a capped amount of output once a command has finished, so every
+     * script also appends to [LOG]. The full `set -x` trace goes to that log alone through
+     * BASH_XTRACEFD, keeping what the app displays readable while preserving a complete record.
+     */
+    private fun header(step: String) = """
+        set -eu
+        mkdir -p '$DIR'
+        exec 19>> '$LOG'
+        BASH_XTRACEFD=19
+        set -x
+        exec > >(tee -a '$LOG') 2>&1
+        echo '=== $step'
+        date
+    """.trimIndent()
 
     /**
      * Downloads the guest image once and builds a cloud-init seed that installs Docker and starts
@@ -50,8 +67,7 @@ object LocalVm {
         spec.validate()
         require(shellSafe(adminPassword) && adminPassword.length >= 12) { "The Portainer admin password must be at least 12 characters without quotes or whitespace" }
         return """
-            set -eu
-            mkdir -p '$DIR'
+            ${header("provision")}
             echo '> installing Termux packages'
             pkg install -y $PACKAGES
             if [ ! -f '$DISK' ]; then
@@ -89,7 +105,7 @@ object LocalVm {
     fun start(spec: VmSpec): String {
         spec.validate()
         return """
-            set -eu
+            ${header("start")}
             if xargs kill -0 < '$PID' 2> /dev/null; then echo '> already running'; exit 0; fi
             rm -f '$PID'
             test -f '$DISK' || { echo '> not provisioned'; exit 1; }
@@ -106,7 +122,7 @@ object LocalVm {
     }
 
     fun stop() = """
-        set -eu
+        ${header("stop")}
         xargs kill -TERM < '$PID' 2> /dev/null || echo '> not running'
         rm -f '$PID'
         echo '> stopped'
@@ -120,4 +136,7 @@ object LocalVm {
 
     /** Last lines of the guest serial console, the only diagnostic available for a headless boot. */
     fun console() = "tail -n 80 '$CONSOLE' 2> /dev/null || echo '> no console output yet'"
+
+    /** Everything the scripts have done, shell trace included. */
+    fun log() = "tail -n 200 '$LOG' 2> /dev/null || echo '> nothing has run yet'"
 }

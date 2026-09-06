@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
     vmPermissionResult: (Boolean) -> Unit,
     stopVm: () -> Unit,
     vmConsole: () -> Unit,
+    vmLog: () -> Unit,
 ) {
     var url by rememberSaveable(state.settings.baseUrl) { mutableStateOf(state.settings.baseUrl) }
     var trust by rememberSaveable(state.settings.trustSelfSigned) { mutableStateOf(state.settings.trustSelfSigned) }
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (running) OutlinedButton(stopVm, enabled = !state.busy) { Text("Stop the VM") }
                 if (state.settings.vmProvisioned) TextButton(vmConsole, enabled = !state.busy) { Text("Guest console") }
+                TextButton(vmLog, enabled = !state.busy) { Text("Termux log") }
             }
             Text("Termux must allow external apps: set allow-external-apps=true in ~/.termux/termux.properties, then restart Termux.", style = MaterialTheme.typography.bodySmall)
         }

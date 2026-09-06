@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.phoneport.core.TERMUX_BASH
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +30,9 @@ object Termux {
     const val RESULT_STDERR = "stderr"
     const val RESULT_EXIT_CODE = "exitCode"
     const val RESULT_ERRMSG = "errmsg"
+    const val RESULT_ERR_CODE = "errCode"
+    const val RESULT_STDOUT_LENGTH = "stdout_original_length"
+    const val RESULT_STDERR_LENGTH = "stderr_original_length"
 
     fun command(script: String, callback: PendingIntent) = Intent(ACTION).apply {
         setClassName(PACKAGE, SERVICE)
@@ -50,16 +54,33 @@ object TermuxResults {
 
 class TermuxResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getIntExtra(TermuxResults.EXTRA_ID, 0)
         val bundle = intent.getBundleExtra(Termux.EXTRA_RESULT_BUNDLE)
-        val error = listOfNotNull(bundle?.getString(Termux.RESULT_STDERR), bundle?.getString(Termux.RESULT_ERRMSG))
-            .filter { it.isNotBlank() }.joinToString("\n")
+        if (bundle == null) {
+            // Termux fills the result in when it sends our PendingIntent, so an immutable one loses it.
+            TermuxResults.results.tryEmit(TermuxResult(id, EXIT_NO_RESULT, "",
+                "Termux answered without a result bundle (extras keys: ${intent.extras?.keySet()?.joinToString() ?: "none"})."))
+            return
+        }
+        val notes = buildList {
+            bundle.getString(Termux.RESULT_ERRMSG)?.takeIf { it.isNotBlank() }?.let { add("Termux message: $it") }
+            bundle.getInt(Termux.RESULT_ERR_CODE, 0).takeIf { it != 0 }?.let { add("Termux error code $it") }
+            if (!bundle.containsKey(Termux.RESULT_EXIT_CODE)) add("Termux reported no exit code for the command.")
+            truncation("stdout", bundle.getString(Termux.RESULT_STDOUT).orEmpty(), bundle.getInt(Termux.RESULT_STDOUT_LENGTH, -1))?.let(::add)
+            truncation("stderr", bundle.getString(Termux.RESULT_STDERR).orEmpty(), bundle.getInt(Termux.RESULT_STDERR_LENGTH, -1))?.let(::add)
+            bundle.getString(Termux.RESULT_STDERR)?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }
         TermuxResults.results.tryEmit(TermuxResult(
-            id = intent.getIntExtra(TermuxResults.EXTRA_ID, 0),
-            // A missing exit code means Termux rejected the command outright.
-            exitCode = bundle?.getInt(Termux.RESULT_EXIT_CODE, -1) ?: -1,
-            output = bundle?.getString(Termux.RESULT_STDOUT).orEmpty(), error = error,
+            id = id,
+            exitCode = if (bundle.containsKey(Termux.RESULT_EXIT_CODE)) bundle.getInt(Termux.RESULT_EXIT_CODE) else EXIT_NO_RESULT,
+            output = bundle.getString(Termux.RESULT_STDOUT).orEmpty(), error = notes.joinToString("\n"),
         ))
     }
+    /** Termux caps what fits in a binder transaction; say so rather than letting output vanish. */
+    private fun truncation(stream: String, value: String, original: Int) =
+        if (original > value.length) "Termux truncated $stream: kept ${value.length} of $original characters." else null
+
+    companion object { const val EXIT_NO_RESULT = -1 }
 }
 
 @Singleton class TermuxVm @Inject constructor(@ApplicationContext private val context: Context) {
@@ -88,7 +109,10 @@ class TermuxResultReceiver : BroadcastReceiver() {
         check(permitted) { "PhonePort needs the Termux RUN_COMMAND permission." }
         val id = ids.getAndIncrement()
         val callback = Intent(context, TermuxResultReceiver::class.java).putExtra(TermuxResults.EXTRA_ID, id)
-        val pending = PendingIntent.getBroadcast(context, id, callback, PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // Must be mutable: Termux delivers the result by filling extras into this PendingIntent, and
+        // an immutable one silently drops them, leaving every command looking like a bare failure.
+        val mutability = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        val pending = PendingIntent.getBroadcast(context, id, callback, PendingIntent.FLAG_ONE_SHOT or mutability)
         try {
             context.startForegroundService(Termux.command(script, pending))
         } catch (e: Exception) {

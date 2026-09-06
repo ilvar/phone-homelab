@@ -29,8 +29,18 @@ class LocalVmTest {
         assertTrue(script.trimEnd().endsWith("echo '> provisioned'"))
     }
 
+    @Test fun `every script keeps a full trace in the log file`() {
+        listOf(LocalVm.provision(VmSpec(), password), LocalVm.start(VmSpec()), LocalVm.stop()).forEach {
+            assertTrue(it, it.contains("exec 19>> '${LocalVm.LOG}'"))
+            assertTrue(it, it.contains("BASH_XTRACEFD=19"))
+            assertTrue(it, it.contains("set -x"))
+            assertTrue(it, it.contains("exec > >(tee -a '${LocalVm.LOG}') 2>&1"))
+        }
+        assertTrue(LocalVm.log().contains(LocalVm.LOG))
+    }
+
     @Test fun `scripts use no shell variables so the Termux environment cannot change them`() {
-        val scripts = listOf(LocalVm.provision(VmSpec(), password), LocalVm.start(VmSpec()), LocalVm.stop(), LocalVm.status(), LocalVm.console())
+        val scripts = listOf(LocalVm.provision(VmSpec(), password), LocalVm.start(VmSpec()), LocalVm.stop(), LocalVm.status(), LocalVm.console(), LocalVm.log())
         // '%s' in printf is fine; a bare $ would be an unresolved expansion.
         scripts.forEach { assertFalse(it, it.contains('$')) }
     }

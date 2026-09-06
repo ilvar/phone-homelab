@@ -157,10 +157,15 @@ data class UiState(
         appendProgress("$ $label")
         val id = termux.run(script)
         val result = withTimeoutOrNull(timeoutMs) { TermuxResults.results.first { it.id == id } }
-            ?: throw IllegalStateException("$label timed out after ${timeoutMs / 60_000} minutes")
+            ?: throw IllegalStateException("$label timed out after ${timeoutMs / 60_000} minutes. Termux may still be working; see ${LocalVm.LOG} in Termux.")
         result.output.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
         result.error.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
-        if (result.exitCode != 0) throw IllegalStateException("$label failed with exit code ${result.exitCode}")
+        if (result.exitCode == 0) return
+        // Termux returns nothing more than the exit status, so point at the log that has the trace.
+        val reason = if (result.exitCode == TermuxResultReceiver.EXIT_NO_RESULT)
+            "$label produced no result from Termux" else "$label failed with exit code ${result.exitCode}"
+        appendProgress("The full shell trace is in ${LocalVm.LOG} inside Termux; \"Termux log\" shows its tail.")
+        throw IllegalStateException("$reason. Open \"Termux log\" for the trace.")
     }
     /** Every refusal has to reach the user: a button that quietly does nothing is the worst outcome. */
     fun runVm() {
@@ -222,6 +227,9 @@ data class UiState(
     }
     fun vmConsole() {
         runOperation("Guest console") { termuxExec("console", LocalVm.console(), 60_000L) }
+    }
+    fun vmLog() {
+        runOperation("Termux log") { termuxExec("log", LocalVm.log(), 60_000L) }
     }
     fun select(template: Template) { mutable.update { it.copy(selected = template, screen = Screen.DETAIL, error = null) } }
     fun deploy(name: String, env: Map<String, String>) {
