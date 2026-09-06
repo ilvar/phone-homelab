@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Termux hosts the QEMU virtual machine that runs Portainer; it also has to be visible to package queries. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <queries><package android:name="com.termux" /></queries>
     <application android:name=".PhonePortApplication" android:label="PhonePort"
         android:theme="@style/Theme.PhonePort" android:allowBackup="false"
         android:icon="@drawable/ic_app" android:dataExtractionRules="@xml/data_extraction_rules"
@@ -12,5 +15,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Termux delivers command results here through a PendingIntent, so it needs no export. -->
+        <receiver android:name=".TermuxResultReceiver" android:exported="false" />
     </application>
 </manifest>

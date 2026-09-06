@@ -17,6 +17,7 @@ private val Context.settingsStore by preferencesDataStore("settings")
 @Serializable data class Settings(
     val baseUrl: String = "http://127.0.0.1:9000", val trustSelfSigned: Boolean = false,
     val endpointId: Int = 0, val endpointName: String = "", val sources: List<CatalogSource> = defaultSources,
+    val vm: VmSpec = VmSpec(), val vmProvisioned: Boolean = false,
 )
 @Singleton class SettingsStore @Inject constructor(@ApplicationContext context: Context) {
     private val store = context.settingsStore

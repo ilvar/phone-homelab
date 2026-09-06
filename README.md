@@ -1,6 +1,6 @@
 # PhonePort
 
-Native Android client for browsing Portainer app catalogs and deploying to a selected Portainer environment. Portainer is the only container-management backend; the client does not manage QEMU or access a Docker socket.
+Native Android client for browsing Portainer app catalogs and deploying to a selected Portainer environment. Portainer is the only container-management backend; the client never talks to a Docker socket directly. It can either connect to a Portainer you already run, or create and run one on the phone itself (see **Run Portainer** below).
 
 ## Build and sideload
 
@@ -17,7 +17,31 @@ On first launch, enter the Portainer URL and API key (or username/password). Ena
 
 **Add app → template tile → Deploy** is the catalog/deploy flow. Fill required environment fields before deployment. Notes, volumes, port mappings, template presets, dropdown defaults, and privileged-container requests are shown in the detail screen. Pull and deployment progress appears in a cancellable sheet. Tap an installed tile for start, stop, restart, remove confirmation, and container logs.
 
-Mapped ports open on the Portainer host when the binding is wildcard/loopback. For your QEMU setup, those guest ports also need existing host forwarding; this client does not create VM forwards. TCP services that are not HTTP will not render in a web browser.
+Mapped ports open on the Portainer host when the binding is wildcard/loopback. For a VM-hosted Portainer, those guest ports also need host forwarding; apart from Portainer's own port, this client does not create VM forwards. TCP services that are not HTTP will not render in a web browser.
+
+## Run Portainer
+
+**Settings → Run Portainer** creates and boots a local Portainer without any other machine. It requires [Termux](https://f-droid.org/packages/com.termux/), which hosts the virtual machine; PhonePort itself only sends commands to it.
+
+Termux setup, once:
+
+```sh
+# in Termux
+mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties
+# then fully restart Termux
+```
+
+Grant the Termux `RUN_COMMAND` permission when PhonePort asks. The first run then, inside Termux:
+
+1. installs `qemu-system-aarch64-headless`, `qemu-utils`, `wget`, `dosfstools` and `mtools`;
+2. downloads a Debian 12 arm64 cloud image (several hundred MB) and grows it to 12 GB;
+3. builds a cloud-init seed that installs Docker and starts `portainer-ce`;
+4. boots the guest headless, forwarding guest port 9000 to `127.0.0.1:9000` on the phone;
+5. waits for Portainer to answer, then signs in as `admin` with a generated 24-character password kept in the app's encrypted credential store.
+
+Everything lives in `~/phoneport-vm` inside Termux. Later runs skip provisioning and just boot the existing disk. **Guest console** prints the tail of the guest's serial log, which is the only diagnostic for a headless boot.
+
+Android phones expose no KVM, so QEMU runs in TCG software emulation. The VM works but is slow, and the first boot — which also installs Docker inside the guest — can take a long time. Budget storage (image plus disk) and battery accordingly.
 
 ## Tests
 

@@ -10,10 +10,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 enum class Screen { SETTINGS, HOME, CATALOG, DETAIL }
+enum class VmStage { UNKNOWN, TERMUX_MISSING, PROVISIONING, STARTING, WAITING, RUNNING, STOPPED, FAILED }
 data class UiState(
     val ready: Boolean = false, val settings: Settings = Settings(), val screen: Screen = Screen.SETTINGS,
     val endpoints: List<Endpoint> = emptyList(), val connectedDraft: Settings? = null,
@@ -24,10 +27,12 @@ data class UiState(
     val loadingCatalog: Boolean = false, val busy: Boolean = false, val error: String? = null,
     val catalogWarnings: List<String> = emptyList(), val progressTitle: String? = null,
     val progress: String = "", val operationDone: Boolean = false,
+    val vm: VmStage = VmStage.UNKNOWN, val vmMessage: String = "",
 )
 @HiltViewModel class AppViewModel @Inject constructor(
     private val settingsStore: SettingsStore, private val secrets: SecretStore,
     private val backend: Backend, private val resources: ResourceNetwork,
+    private val termux: TermuxVm,
     @ApplicationContext context: Context,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(UiState())
@@ -50,6 +55,7 @@ data class UiState(
                 if (first) {
                     loadCatalog(false)
                     if (settings.endpointId > 0) refreshInstalled()
+                    refreshVm()
                 }
             }
         }
@@ -126,6 +132,83 @@ data class UiState(
     fun logs(app: InstalledApp) {
         val settings = mutable.value.settings
         runOperation("Logs · ${app.name}") { op -> backend.logs(settings, secrets, app, op) { chunk -> mutable.update { it.copy(progress = (it.progress + chunk).takeLast(150_000)) } } }
+    }
+    // ---- Local Portainer VM, emulated by QEMU inside Termux ----
+    private val probe = Network.publicClient().newBuilder()
+        .connectTimeout(3, TimeUnit.SECONDS).readTimeout(3, TimeUnit.SECONDS).build()
+    private suspend fun portainerReachable(spec: VmSpec) = withContext(Dispatchers.IO) {
+        runCatching { probe.newCall(Request.Builder().url("${spec.baseUrl}/api/system/status").build()).execute().use { it.isSuccessful } }
+            .getOrDefault(false)
+    }
+    private fun vmStage(stage: VmStage, message: String = "") { mutable.update { it.copy(vm = stage, vmMessage = message) } }
+    /** Cheap, silent check on startup: probing loopback never wakes Termux or prompts the user. */
+    fun refreshVm() {
+        viewModelScope.launch {
+            if (!termux.installed) { vmStage(VmStage.TERMUX_MISSING, "Termux is not installed on this phone."); return@launch }
+            val spec = mutable.value.settings.vm
+            if (portainerReachable(spec)) vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}")
+            else if (mutable.value.vm in listOf(VmStage.UNKNOWN, VmStage.RUNNING, VmStage.TERMUX_MISSING))
+                vmStage(VmStage.STOPPED, if (mutable.value.settings.vmProvisioned) "The VM is not running." else "No local VM has been created yet.")
+        }
+    }
+    private suspend fun termuxExec(label: String, script: String, timeoutMs: Long) {
+        appendProgress("$ $label")
+        val id = termux.run(script)
+        val result = withTimeoutOrNull(timeoutMs) { TermuxResults.results.first { it.id == id } }
+            ?: throw IllegalStateException("$label timed out after ${timeoutMs / 60_000} minutes")
+        result.output.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
+        result.error.trim().takeIf { it.isNotEmpty() }?.let(::appendProgress)
+        if (result.exitCode != 0) throw IllegalStateException("$label failed with exit code ${result.exitCode}")
+    }
+    fun runVm() {
+        val spec = mutable.value.settings.vm
+        runOperation("Run Portainer") { op ->
+            spec.validate()
+            if (portainerReachable(spec)) {
+                vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}")
+                appendProgress("Portainer is already running on ${spec.baseUrl}."); return@runOperation
+            }
+            var settings = mutable.value.settings
+            if (!settings.vmProvisioned) {
+                vmStage(VmStage.PROVISIONING, "Installing QEMU and building the guest image")
+                // The admin password exists only here and inside the seed image; Portainer consumes it on first start.
+                val password = generatePassword()
+                secrets.replace(MemoryCredentials(username = LocalVm.ADMIN_USER, password = password))
+                termuxExec("provision", LocalVm.provision(spec, password), 90 * 60_000L)
+                settings = settings.copy(vmProvisioned = true, baseUrl = spec.baseUrl, trustSelfSigned = false)
+                settingsStore.save(settings)
+            }
+            vmStage(VmStage.STARTING, "Booting the guest")
+            termuxExec("start", LocalVm.start(spec), 5 * 60_000L)
+            vmStage(VmStage.WAITING, "Waiting for Portainer on ${spec.baseUrl}")
+            appendProgress("Waiting for Portainer. This phone has no KVM, so QEMU emulates the guest in software: the first boot also installs Docker and can take a long time.")
+            val deadline = System.currentTimeMillis() + 45 * 60_000L
+            while (!portainerReachable(spec)) {
+                if (System.currentTimeMillis() > deadline) {
+                    vmStage(VmStage.FAILED, "Portainer did not answer within 45 minutes.")
+                    termuxExec("console", LocalVm.console(), 60_000L)
+                    throw IllegalStateException("Portainer did not answer on ${spec.baseUrl} within 45 minutes")
+                }
+                delay(10_000)
+            }
+            vmStage(VmStage.RUNNING, "Portainer is answering on ${spec.baseUrl}")
+            appendProgress("Portainer is up. Signing in as ${LocalVm.ADMIN_USER}.")
+            val credentials = MemoryCredentials(username = LocalVm.ADMIN_USER, password = secrets.password)
+            val endpoints = backend.connect(settings, credentials, op)
+            require(endpoints.isNotEmpty()) { "The local Portainer has no Docker environment yet" }
+            credentialsDraft = credentials
+            mutable.update { it.copy(endpoints = endpoints, connectedDraft = settings) }
+            if (endpoints.size == 1) saveEndpoint(endpoints.single())
+        }
+    }
+    fun stopVm() {
+        runOperation("Stop Portainer") {
+            termuxExec("stop", LocalVm.stop(), 60_000L)
+            vmStage(VmStage.STOPPED, "The VM is not running.")
+        }
+    }
+    fun vmConsole() {
+        runOperation("Guest console") { termuxExec("console", LocalVm.console(), 60_000L) }
     }
     fun select(template: Template) { mutable.update { it.copy(selected = template, screen = Screen.DETAIL, error = null) } }
     fun deploy(name: String, env: Map<String, String>) {
