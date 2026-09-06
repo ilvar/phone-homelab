@@ -1,0 +1,11 @@
+{
+	"version": "2",
+	"templates": [
+		{
+			"type": 1,
+			"title": "The templates created by Technorabilia have been moved",
+			"description": "The new location is https://raw.githubusercontent.com/technorabilia/portainer-templates/main/lsio/templates/templates.json",
+			"platform": "linux"
+		}
+	]
+}

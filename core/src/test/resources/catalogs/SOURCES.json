@@ -1,0 +1,6 @@
+{
+  "official": "https://raw.githubusercontent.com/portainer/templates/v3/templates.json",
+  "lissy93": "https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json",
+  "pi-hosted": "https://raw.githubusercontent.com/pi-hosted/pi-hosted/master/template/portainer-v2-arm64.json",
+  "linuxserver": "https://raw.githubusercontent.com/technorabilia/portainer-templates/main/lsio/templates/templates-2.0.json"
+}
