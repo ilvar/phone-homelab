@@ -28,6 +28,7 @@ data class UiState(
     val catalogWarnings: List<String> = emptyList(), val progressTitle: String? = null,
     val progress: String = "", val operationDone: Boolean = false,
     val vm: VmStage = VmStage.UNKNOWN, val vmMessage: String = "", val vmPermissionRequest: Int = 0,
+    val savedUsername: String = "", val savedPassword: String = "",
 )
 @HiltViewModel class AppViewModel @Inject constructor(
     private val settingsStore: SettingsStore, private val secrets: SecretStore,
@@ -56,8 +57,20 @@ data class UiState(
                     loadCatalog(false)
                     if (settings.endpointId > 0) refreshInstalled()
                     refreshVm()
+                    rememberCredentials()
                 }
             }
+        }
+    }
+    /**
+     * Offers the stored account back to the connect form. The local VM always creates its Portainer
+     * admin, so an unprovisioned install still starts from that username rather than an empty field.
+     */
+    private fun rememberCredentials() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val username = secrets.username.ifBlank { LocalVm.ADMIN_USER }
+            val password = secrets.password
+            mutable.update { it.copy(savedUsername = username, savedPassword = password) }
         }
     }
     fun navigate(screen: Screen) {
@@ -192,6 +205,7 @@ data class UiState(
                 // The admin password exists only here and inside the seed image; Portainer consumes it on first start.
                 val password = generatePassword()
                 secrets.replace(MemoryCredentials(username = LocalVm.ADMIN_USER, password = password))
+                mutable.update { it.copy(savedUsername = LocalVm.ADMIN_USER, savedPassword = password) }
                 termuxExec("provision", LocalVm.provision(spec, password), 90 * 60_000L)
                 settings = settings.copy(vmProvisioned = true, baseUrl = spec.baseUrl, trustSelfSigned = false)
                 settingsStore.save(settings)

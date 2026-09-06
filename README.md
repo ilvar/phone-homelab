@@ -13,7 +13,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 The default APK targets arm64-v8a and Android 10+ (minSdk 29). On your phone, allow APK installation from the app used to open the file. This is a debug-signed sideload build, not a Play Store release.
 
-On first launch, enter the Portainer URL and API key (or username/password). Enable the self-signed toggle only if required. Connect, then select a Docker environment; a single environment is selected automatically. Later launches open **Your apps**, with installed/running app tiles, state, image, uptime/status, port links, and a large **Add app** button. Container and Compose stack tiles are listed separately, including containers belonging to stacks.
+On first launch, enter the Portainer URL and credentials. Username/password is the default mode and is prefilled from the encrypted store; switch to **API key** for a token instead. Enable the self-signed toggle only if required. Connect, then select a Docker environment; a single environment is selected automatically. Later launches open **Your apps**, with installed/running app tiles, state, image, uptime/status, port links, and a large **Add app** button. Container and Compose stack tiles are listed separately, including containers belonging to stacks.
 
 **Add app → template tile → Deploy** is the catalog/deploy flow. Fill required environment fields before deployment. Notes, volumes, port mappings, template presets, dropdown defaults, and privileged-container requests are shown in the detail screen. Pull and deployment progress appears in a cancellable sheet. Tap an installed tile for start, stop, restart, remove confirmation, and container logs.
 
@@ -38,6 +38,8 @@ Grant the Termux `RUN_COMMAND` permission when PhonePort asks. The first run the
 3. builds a cloud-init seed that installs Docker and starts `portainer-ce`;
 4. boots the guest headless, forwarding guest port 9000 to `127.0.0.1:9000` on the phone;
 5. waits for Portainer to answer, then signs in as `admin` with a generated 24-character password kept in the app's encrypted credential store.
+
+**Connect to Portainer** defaults to username/password and is prefilled with that stored account, so connecting to a local VM needs no typing.
 
 Everything lives in `~/phoneport-vm` inside Termux. Later runs skip provisioning and just boot the existing disk. **Guest console** prints the tail of the guest's serial log, which is the only diagnostic for a headless boot.
 

@@ -21,10 +21,23 @@ class MainFlowsTest {
                 assertEquals("http://127.0.0.1:9000", url); assertFalse(trust); assertEquals("test-key", key); assertTrue(apiMode); connected = true
             }, {}, { _, _ -> }, {}, {}, {}, {}, {}, {})
         } }
+        compose.onNodeWithText("API key").performScrollTo().performClick()
         compose.onNodeWithText("Connect").assertIsNotEnabled()
         compose.onAllNodesWithText("API key").filter(hasSetTextAction()).onFirst().performTextInput("test-key")
         compose.onNodeWithText("Connect").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(connected) }
+    }
+    @Test fun connectionDefaultsToTheStoredUsernameAndPassword() {
+        var seen: List<Any>? = null
+        val state = UiState(savedUsername = "admin", savedPassword = "generatedPassword12")
+        compose.setContent { MaterialTheme {
+            SettingsScreen(state, { _, _, _, user, pass, apiMode -> seen = listOf(user, pass, apiMode) },
+                {}, { _, _ -> }, {}, {}, {}, {}, {}, {})
+        } }
+        // Prefilled, so Connect is usable without typing anything.
+        compose.onNodeWithText("admin").assertIsDisplayed()
+        compose.onNodeWithText("Connect").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf<Any>("admin", "generatedPassword12", false), seen) }
     }
     @Test fun runPortainerAlwaysReachesTheModelSoRefusalsCanBeReported() {
         var started = false

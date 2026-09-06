@@ -26,9 +26,12 @@ import androidx.compose.ui.unit.dp
 ) {
     var url by rememberSaveable(state.settings.baseUrl) { mutableStateOf(state.settings.baseUrl) }
     var trust by rememberSaveable(state.settings.trustSelfSigned) { mutableStateOf(state.settings.trustSelfSigned) }
-    var apiMode by rememberSaveable { mutableStateOf(true) }
-    // Credentials intentionally do not use saved instance state.
-    var key by remember { mutableStateOf("") }; var username by remember { mutableStateOf("") }; var password by remember { mutableStateOf("") }
+    // Username and password is the default: it is how the local VM's Portainer is reached.
+    var apiMode by rememberSaveable { mutableStateOf(false) }
+    // Credentials intentionally do not use saved instance state; they are re-seeded from the store.
+    var key by remember { mutableStateOf("") }
+    var username by remember(state.savedUsername) { mutableStateOf(state.savedUsername) }
+    var password by remember(state.savedPassword) { mutableStateOf(state.savedPassword) }
     var sourceName by rememberSaveable { mutableStateOf("") }; var sourceUrl by rememberSaveable { mutableStateOf("") }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), vmPermissionResult)
     // The model decides when a prompt is worth showing; the counter re-arms it for a later retry.
@@ -70,7 +73,7 @@ import androidx.compose.ui.unit.dp
         else {
             OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(password, { password = it }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-            Text("Your credentials are encrypted on this device so the app can sign in again when the session expires.", style = MaterialTheme.typography.bodySmall)
+            Text("Your credentials are encrypted on this device so the app can sign in again when the session expires. A local VM's Portainer admin account is filled in for you.", style = MaterialTheme.typography.bodySmall)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Trust self-signed certificate", modifier = Modifier.weight(1f).padding(top = 14.dp))
